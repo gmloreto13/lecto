@@ -1,5 +1,5 @@
 // Lecto · service worker: funciona sin conexión tras la primera visita.
-const VERSION = 'lecto-v2.0.0'
+const VERSION = 'lecto-v2.0.1'
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', (event) => {

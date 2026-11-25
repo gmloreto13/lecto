@@ -89,7 +89,7 @@ export default function App() {
   const toast = useCallback((msg: string) => setToastMsg(msg), [])
   useEffect(() => {
     if (!toastMsg) return
-    const t = window.setTimeout(() => setToastMsg(null), 2000)
+    const t = window.setTimeout(() => setToastMsg(null), toastMsg.length > 60 ? 7000 : 2000)
     return () => window.clearTimeout(t)
   }, [toastMsg])
 
@@ -150,6 +150,12 @@ export default function App() {
     onSentenceSpoken: (seconds) => setStats((s) => addToStats(s, docRef.current?.id ?? null, { seconds: Math.min(seconds, 60), sentences: 1 })),
     onPageFinished: () => setStats((s) => addToStats(s, docRef.current?.id ?? null, { pages: 1 })),
     onFinished: () => setToastMsg('Has llegado al final del documento'),
+    onBlocked: (reason) =>
+      setToastMsg(
+        reason === 'not-allowed'
+          ? 'El navegador bloqueó la voz. Toca de nuevo el botón de reproducir.'
+          : 'No se oye la voz: sube el volumen, quita el modo silencio y revisa que haya una voz en español instalada en tu móvil.',
+      ),
   })
   const { pause, isPlaying, toggle, step } = speech
 
@@ -471,7 +477,7 @@ export default function App() {
 
       {toastMsg && (
         <div className="pointer-events-none fixed inset-x-0 top-[calc(1rem+env(safe-area-inset-top))] z-[60] flex justify-center px-4" role="status">
-          <p className="animate-pop rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-bg shadow-float">{toastMsg}</p>
+          <p className="animate-pop max-w-md rounded-2xl bg-ink px-4 py-2.5 text-center text-sm font-semibold text-bg shadow-float">{toastMsg}</p>
         </div>
       )}
     </div>

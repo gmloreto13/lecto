@@ -39,6 +39,8 @@ export interface SpeechReaderOptions {
   onSentenceSpoken?: (seconds: number) => void
   onPageFinished?: () => void
   onFinished?: () => void
+  /** El navegador no dejó hablar (sin voz, bloqueo de audio o modo silencio). */
+  onBlocked?: (reason: string) => void
 }
 
 export function useSpeechReader(opts: SpeechReaderOptions) {
@@ -52,6 +54,9 @@ export function useSpeechReader(opts: SpeechReaderOptions) {
   const genRef = useRef(0)
   const errorsRef = useRef(0)
   const waitTimer = useRef<number | null>(null)
+  const watchdog = useRef<number | null>(null)
+  // Guardar el enunciado evita que Chrome lo libere y nunca dispare onend.
+  const utterRef = useRef<SpeechSynthesisUtterance | null>(null)
 
   useEffect(() => {
     if (!synth) return
@@ -75,7 +80,8 @@ export function useSpeechReader(opts: SpeechReaderOptions) {
   const stopInternal = useCallback(() => {
     genRef.current++
     if (waitTimer.current) window.clearTimeout(waitTimer.current)
-    synth?.cancel()
+    if (watchdog.current) window.clearTimeout(watchdog.current)
+    if (synth && (synth.speaking || synth.pending)) synth.cancel()
   }, [])
 
   const speakAt = useCallback(
@@ -108,7 +114,9 @@ export function useSpeechReader(opts: SpeechReaderOptions) {
       } else u.lang = 'es-MX'
       u.rate = o.rate
       let started = performance.now()
+      let didStart = false
       u.onstart = () => {
+        didStart = true
         started = performance.now()
       }
       u.onend = () => {
@@ -120,19 +128,39 @@ export function useSpeechReader(opts: SpeechReaderOptions) {
       u.onerror = (e) => {
         if (gen !== genRef.current) return
         if (e.error === 'interrupted' || e.error === 'canceled') return
+        if (e.error === 'not-allowed') {
+          playingRef.current = false
+          setIsPlaying(false)
+          optsRef.current.onBlocked?.('not-allowed')
+          return
+        }
         errorsRef.current++
         if (errorsRef.current > 3) {
           playingRef.current = false
           setIsPlaying(false)
+          optsRef.current.onBlocked?.(e.error)
           return
         }
         waitTimer.current = window.setTimeout(() => advance(pos), 250)
       }
-      // Pequeño respiro tras cancel(): evita que Chrome descarte el siguiente enunciado.
-      window.setTimeout(() => {
-        if (gen !== genRef.current) return
+      utterRef.current = u
+      // Se habla de forma síncrona: en iPhone y Android la voz solo se permite
+      // dentro del mismo gesto del usuario (un setTimeout la bloquea).
+      synth.resume()
+      synth.speak(u)
+      // Vigilante: si la voz no arranca, reintenta una vez y luego avisa.
+      watchdog.current = window.setTimeout(() => {
+        if (gen !== genRef.current || didStart || synth.speaking) return
+        synth.cancel()
+        synth.resume()
         synth.speak(u)
-      }, 40)
+        watchdog.current = window.setTimeout(() => {
+          if (gen !== genRef.current || didStart || synth.speaking) return
+          playingRef.current = false
+          setIsPlaying(false)
+          optsRef.current.onBlocked?.('silent')
+        }, 2500)
+      }, 2500)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stopInternal],
@@ -234,7 +262,9 @@ export function useSpeechReader(opts: SpeechReaderOptions) {
       u.lang = v.lang
     }
     u.rate = optsRef.current.rate
-    window.setTimeout(() => synth.speak(u), 40)
+    utterRef.current = u
+    synth.resume()
+    synth.speak(u)
   }, [pause])
 
   // Cambio de velocidad o voz en vivo: reinicia la frase actual al instante.
